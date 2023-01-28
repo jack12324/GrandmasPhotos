@@ -1,68 +1,184 @@
-# importing the module
-from PIL import Image
-import progressbar
+import json
+import PySimpleGUI as sg
 import os
 
+import pyexif as pyexif
+from PIL import Image, ImageTk
+import io
+from State import State
 
-def convert_image(image_path):
-    # importing the image
-    filename = image_path.replace("Tif", "Jpg")
-    filename = filename.replace("tif", "jpg")
-    if not os.path.isfile(filename):
-        im = Image.open(image_path)
-        # converting to jpg
-        rgb_im = im.convert("RGB")
-        # exporting the image
-        rgb_im.save(filename, quality=95)
-        return 1
+# Get the folder containing the images from the user
+folder = sg.popup_get_folder('Start Folder', default_path='')
+if not folder:
+    sg.popup_cancel('Cancelling')
+    raise SystemExit()
+
+
+# returns array of path to all tif files in a given directory
+# also searches subdirectories
+def get_all_tif_files(start_path):
+    tif_files = []
+    lfiles = os.listdir(start_path)
+    for file in lfiles:
+        file_path = os.path.join(start_path, file)
+        if os.path.isfile(file_path):
+            if file.endswith(".tif"):
+                tif_files.append(file_path)
+        else:
+            tif_files.extend(get_all_tif_files(file_path))
+    return tif_files
+
+
+fnames = get_all_tif_files(folder)
+
+num_files = len(fnames)  # number of iamges found
+if num_files == 0:
+    sg.popup('No files in folder')
+    raise SystemExit()
+
+
+# ------------------------------------------------------------------------------
+# use PIL to read data of one image
+# ------------------------------------------------------------------------------
+
+
+def get_img_data(file_path, rotate=0, maxsize=(800, 800), first=False):
+    """Generate image data using PIL
+    """
+    img = Image.open(file_path)
+    img.thumbnail(maxsize)
+    if rotate != 0:
+        if rotate == 90:
+            img = img.transpose(Image.ROTATE_90)
+        elif rotate == 180:
+            img = img.transpose(Image.ROTATE_180)
+        else:
+            img = img.transpose(Image.ROTATE_270)
+
+    if first:  # tkinter is inactive the first time
+        bio = io.BytesIO()
+        img.save(bio, format="PNG")
+        del img
+        return bio.getvalue()
+    return ImageTk.PhotoImage(img)
+
+
+# ------------------------------------------------------------------------------
+
+
+# make these 2 elements outside the layout as we want to "update" them later
+# initialize to the first file in the list
+filename = fnames[0]  # name of first file in list
+image_elem = sg.Image(data=get_img_data(filename, first=True))
+filename_display_elem = sg.Text(filename, auto_size_text=True)
+file_num_display_elem = sg.Text('File 1 of {}'.format(num_files), size=(15, 1))
+
+# define layout, show and read the form
+col = [[filename_display_elem],
+       [image_elem]]
+
+col_files = [[sg.Listbox(values=fnames, change_submits=True, size=(60, 30), key='listbox')],
+             [sg.Button('Save and Next', size=(8, 2)), sg.Button('Prev', size=(8, 2)), file_num_display_elem],
+             [sg.Button('Rotate Left', size=(8, 4)), sg.Button('Rotate Right', size=(8, 4))],
+             [sg.Button('Show Metadata'), sg.Button('Clear Metadata')]]
+
+layout = [[sg.Column(col_files, vertical_alignment="top"),
+           sg.Column(col, element_justification="left", vertical_alignment="top")]]
+
+window = sg.Window('Image Browser', layout, return_keyboard_events=True,
+                   location=(0, 0), use_default_focus=False, resizable=True)
+
+# loop reading the user input and displaying image, filename
+i = 0
+rotate_value = 0
+
+
+def rotate_image(file_path, rotate):
+    exif = pyexif.ExifEditor(file_path)
+    tag = exif.getTag("UserComment")
+
+    if tag is None:
+        init_metadata(exif)
+
+    try:
+        status = json.loads(exif.getTag("UserComment"))
+    except TypeError:
+        init_metadata(exif)
+        status = json.loads(exif.getTag("UserComment"))
+
+    img = Image.open(file_path)
+    if rotate == 90:
+        img = img.transpose(Image.ROTATE_90)
+    elif rotate == 180:
+        img = img.transpose(Image.ROTATE_180)
     else:
-        return 0
+        img = img.transpose(Image.ROTATE_270)
+
+    img.save(file_path)
+
+    status[State.ROTATED.value] = True
+    # Assume that if we are rotating the image that it needs to be re converted and uploaded
+    status[State.CONVERTED.value] = False
+    exif.setTag("UserComment", json.dumps(status))
 
 
-def rename_photos_at_path(path, progress_bar):
-    ignore = ['.idea', 'env', 'main.py', 'Jpg']
-    lfiles = os.listdir(path)
-    total_done = 0
-    for file in lfiles:
-        if file not in ignore:
-            file_path = f'{path}\\{file}'
-            if os.path.isfile(file_path):
-                total_done += convert_image(file_path)
-                progress_bar.update(total_done)
-            else:
-                new_path = file_path.replace("Tif", "Jpg")
-                if not os.path.exists(new_path):
-                    os.mkdir(new_path)
-                total_done = rename_photos_at_path(file_path, progress_bar)
-                progress_bar.update(total_done)
-    return total_done
-
-#t
-def get_total_files(path):
-    ignore = ['.idea', 'env', 'main.py', 'Jpg']
-    lfiles = os.listdir(path)
-    total = 0
-    for file in lfiles:
-        if file not in ignore:
-            file_path = f'{path}\\{file}'
-            if os.path.isfile(file_path):
-                if not jpg_exists_for_tif(file_path):
-                    total += 1
-            else:
-                total += get_total_files(file_path)
-    return total
+def show_metadata(path):
+    exif = pyexif.ExifEditor(path)
+    tag = exif.getTag("UserComment")
+    if tag is None:
+        init_metadata(exif)
+    tag = exif.getTag("UserComment")
+    print(tag)
 
 
-def jpg_exists_for_tif(file_path):
-    jpg_file_path = file_path.replace("Tif", "Jpg").replace("tif", "jpg")
-    return os.path.isfile(jpg_file_path)
+def init_metadata(exif):
+    status = {State.ROTATED.value: False, State.CONVERTED.value: False}
+    exif.setTag("UserComment", json.dumps(status))
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    total = get_total_files('Photos')
-    bar = progressbar.ProgressBar(maxval=total).start()
-    done = rename_photos_at_path('Photos', bar)
-    bar.update(done)
+while True:
+    # read the form
+    event, values = window.read()
+    print(event, values)
+    # perform button and keyboard operations
+    if event == sg.WIN_CLOSED:
+        break
+    elif event in 'Save and Next':
+        if rotate_value % 360 != 0:
+            rotate_image(filename, rotate_value % 360)
+        rotate_value = 0
+        i += 1
+        if i >= num_files:
+            i -= num_files
+        filename = fnames[i]
+    elif event in 'Prev':
+        rotate_value = 0
+        i -= 1
+        if i < 0:
+            i = num_files + i
+        filename = fnames[i]
+    elif event == 'listbox':  # something from the listbox
+        rotate_value = 0
+        f = values["listbox"][0]  # selected filename
+        filename = f  # read this file
+        i = fnames.index(f)  # update running index
+    elif event == 'Rotate Right':
+        rotate_value -= 90
+    elif event == 'Rotate Left':
+        rotate_value += 90
+    elif event == 'Show Metadata':
+        show_metadata(filename)
+    elif event == 'Clear Metadata':
+        metadata = pyexif.ExifEditor(filename)
+        init_metadata(metadata)
+    else:
+        filename = fnames[i]
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    # update window with new image
+    image_elem.update(data=get_img_data(filename, rotate=(rotate_value % 360), first=True))
+    # update window with filename
+    filename_display_elem.update(filename)
+    # update page display
+    file_num_display_elem.update('File {} of {}'.format(i + 1, num_files))
+
+window.close()
