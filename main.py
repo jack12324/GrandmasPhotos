@@ -1,14 +1,23 @@
-import json
 import PySimpleGUI as sg
 import os
-
-import pyexif as pyexif
 from PIL import Image, ImageTk
 import io
-from State import State
+
+import ImageStateLoader
+from ImageState import ImageState
+
+START_FOLDER = "C:/Users/Jacks/Programming/GrandmasPhotos/Photos/Tif/Denny"
+
+file_states = ImageStateLoader.load_image_states()
 
 # Get the folder containing the images from the user
-folder = sg.popup_get_folder('Start Folder', default_path='')
+if START_FOLDER == "":
+    folder = sg.popup_get_folder('Start Folder', default_path='')
+else:
+    folder = START_FOLDER
+
+print(folder)
+
 if not folder:
     sg.popup_cancel('Cancelling')
     raise SystemExit()
@@ -29,9 +38,35 @@ def get_all_tif_files(start_path):
     return tif_files
 
 
-fnames = get_all_tif_files(folder)
+all_tifs = get_all_tif_files(folder)
 
-num_files = len(fnames)  # number of iamges found
+uninitialized = []
+convert_queue = []
+upload_queue = []
+unrotated = []
+
+
+def sort_tifs():
+    for tif in all_tifs:
+        if tif in file_states:
+            if file_states[tif].rotated:
+                if file_states[tif].converted:
+                    if file_states[tif].uploaded:
+                        continue
+                    else:
+                        upload_queue.append(tif)
+                else:
+                    convert_queue.append(tif)
+            else:
+                unrotated.append(tif)
+        else:
+            file_states[tif] = ImageState()
+            unrotated.append(tif)
+
+
+sort_tifs()
+
+num_files = len(unrotated)  # number of iamges found
 if num_files == 0:
     sg.popup('No files in folder')
     raise SystemExit()
@@ -68,7 +103,7 @@ def get_img_data(file_path, rotate=0, maxsize=(800, 800), first=False):
 
 # make these 2 elements outside the layout as we want to "update" them later
 # initialize to the first file in the list
-filename = fnames[0]  # name of first file in list
+filename = unrotated[0]  # name of first file in list
 image_elem = sg.Image(data=get_img_data(filename, first=True))
 filename_display_elem = sg.Text(filename, auto_size_text=True)
 file_num_display_elem = sg.Text('File 1 of {}'.format(num_files), size=(15, 1))
@@ -77,7 +112,7 @@ file_num_display_elem = sg.Text('File 1 of {}'.format(num_files), size=(15, 1))
 col = [[filename_display_elem],
        [image_elem]]
 
-col_files = [[sg.Listbox(values=fnames, change_submits=True, size=(60, 30), key='listbox')],
+col_files = [[sg.Listbox(values=unrotated, change_submits=True, size=(60, 30), key='listbox')],
              [sg.Button('Save and Next', size=(8, 2)), sg.Button('Prev', size=(8, 2)), file_num_display_elem],
              [sg.Button('Rotate Left', size=(8, 4)), sg.Button('Rotate Right', size=(8, 4))],
              [sg.Button('Show Metadata'), sg.Button('Clear Metadata')]]
@@ -94,18 +129,6 @@ rotate_value = 0
 
 
 def rotate_image(file_path, rotate):
-    exif = pyexif.ExifEditor(file_path)
-    tag = exif.getTag("UserComment")
-
-    if tag is None:
-        init_metadata(exif)
-
-    try:
-        status = json.loads(exif.getTag("UserComment"))
-    except TypeError:
-        init_metadata(exif)
-        status = json.loads(exif.getTag("UserComment"))
-
     img = Image.open(file_path)
     if rotate == 90:
         img = img.transpose(Image.ROTATE_90)
@@ -115,25 +138,7 @@ def rotate_image(file_path, rotate):
         img = img.transpose(Image.ROTATE_270)
 
     img.save(file_path)
-
-    status[State.ROTATED.value] = True
-    # Assume that if we are rotating the image that it needs to be re converted and uploaded
-    status[State.CONVERTED.value] = False
-    exif.setTag("UserComment", json.dumps(status))
-
-
-def show_metadata(path):
-    exif = pyexif.ExifEditor(path)
-    tag = exif.getTag("UserComment")
-    if tag is None:
-        init_metadata(exif)
-    tag = exif.getTag("UserComment")
-    print(tag)
-
-
-def init_metadata(exif):
-    status = {State.ROTATED.value: False, State.CONVERTED.value: False}
-    exif.setTag("UserComment", json.dumps(status))
+    file_states[file_path].rotated = True
 
 
 while True:
@@ -142,6 +147,7 @@ while True:
     print(event, values)
     # perform button and keyboard operations
     if event == sg.WIN_CLOSED:
+        ImageStateLoader.save_image_states(file_states)
         break
     elif event in 'Save and Next':
         if rotate_value % 360 != 0:
@@ -150,29 +156,28 @@ while True:
         i += 1
         if i >= num_files:
             i -= num_files
-        filename = fnames[i]
+        filename = unrotated[i]
     elif event in 'Prev':
         rotate_value = 0
         i -= 1
         if i < 0:
             i = num_files + i
-        filename = fnames[i]
+        filename = unrotated[i]
     elif event == 'listbox':  # something from the listbox
         rotate_value = 0
         f = values["listbox"][0]  # selected filename
         filename = f  # read this file
-        i = fnames.index(f)  # update running index
+        i = unrotated.index(f)  # update running index
     elif event == 'Rotate Right':
         rotate_value -= 90
     elif event == 'Rotate Left':
         rotate_value += 90
     elif event == 'Show Metadata':
-        show_metadata(filename)
+        print(file_states[filename])
     elif event == 'Clear Metadata':
-        metadata = pyexif.ExifEditor(filename)
-        init_metadata(metadata)
+        pass
     else:
-        filename = fnames[i]
+        filename = unrotated[i]
 
     # update window with new image
     image_elem.update(data=get_img_data(filename, rotate=(rotate_value % 360), first=True))
