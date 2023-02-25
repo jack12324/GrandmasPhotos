@@ -1,3 +1,5 @@
+import time
+
 import PySimpleGUI as sg
 import os
 from PIL import Image, ImageTk
@@ -6,7 +8,8 @@ import io
 import ImageStateLoader
 from ImageState import ImageState
 
-START_FOLDER = "C:/Users/Jacks/Programming/GrandmasPhotos/Photos/Tif/Denny"
+START_FOLDER = "E:\Files\Python Scripts\GrandmasPhotos\Photos\Denny"
+
 
 file_states = ImageStateLoader.load_image_states()
 
@@ -40,10 +43,35 @@ def get_all_tif_files(start_path):
 
 all_tifs = get_all_tif_files(folder)
 
-uninitialized = []
+previous_queue = []
 convert_queue = []
 upload_queue = []
 unrotated = []
+
+
+def convert_image(image_path):
+    # importing the image
+    filename = image_path.replace("Tif", "Jpg")
+    filename = filename.replace("tif", "jpg")
+    if not os.path.isdir(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
+    if not os.path.isfile(filename):
+        im = Image.open(image_path)
+        # converting to jpg
+        rgb_im = im.convert("RGB")
+        # exporting the image
+        rgb_im.save(filename, quality=95)
+
+def convert_all_rotated():
+    print(convert_queue)
+    while len(convert_queue) > 0:
+        image = convert_queue.pop()
+        convert_image(image)
+        file_states[image].converted = True
+        if image not in upload_queue:
+            upload_queue.append(image)
+    ImageStateLoader.save_image_states(file_states)
+
 
 
 def sort_tifs():
@@ -66,8 +94,7 @@ def sort_tifs():
 
 sort_tifs()
 
-num_files = len(unrotated)  # number of iamges found
-if num_files == 0:
+if (len(unrotated) + len(convert_queue) + len(upload_queue))== 0:
     sg.popup('No files in folder')
     raise SystemExit()
 
@@ -103,19 +130,30 @@ def get_img_data(file_path, rotate=0, maxsize=(800, 800), first=False):
 
 # make these 2 elements outside the layout as we want to "update" them later
 # initialize to the first file in the list
-filename = unrotated[0]  # name of first file in list
+if len(unrotated) == 0:
+    filename = "default_image.jpg"
+else:
+    filename = unrotated[0]  # name of first file in list
 image_elem = sg.Image(data=get_img_data(filename, first=True))
 filename_display_elem = sg.Text(filename, auto_size_text=True)
-file_num_display_elem = sg.Text('File 1 of {}'.format(num_files), size=(15, 1))
+if len(unrotated) == 0:
+    num_to_rotate_display = sg.Text('No Unrotated Files', size=(15, 1))
+else:
+    num_to_rotate_display = sg.Text('Unrotated File 1 of {}'.format(len(unrotated)), size=(15, 1))
+
+num_to_convert_display = sg.Text('Images to Convert: {}'.format(len(convert_queue)), size=(15, 1))
+num_to_upload_display = sg.Text('Images to Upload: {}'.format(len(upload_queue)), size=(15, 1))
 
 # define layout, show and read the form
 col = [[filename_display_elem],
        [image_elem]]
 
-col_files = [[sg.Listbox(values=unrotated, change_submits=True, size=(60, 30), key='listbox')],
-             [sg.Button('Save and Next', size=(8, 2)), sg.Button('Prev', size=(8, 2)), file_num_display_elem],
+col_files = [[num_to_rotate_display],
+             [num_to_convert_display],
+             [num_to_upload_display],
              [sg.Button('Rotate Left', size=(8, 4)), sg.Button('Rotate Right', size=(8, 4))],
-             [sg.Button('Show Metadata'), sg.Button('Clear Metadata')]]
+             [sg.Button('Prev', size=(8, 2)), sg.Button('Confirm Rotation', size=(8, 2))],
+             [sg.Button('Show File State'), sg.Button('Convert Rotated to Jpg')]]
 
 layout = [[sg.Column(col_files, vertical_alignment="top"),
            sg.Column(col, element_justification="left", vertical_alignment="top")]]
@@ -138,7 +176,6 @@ def rotate_image(file_path, rotate):
         img = img.transpose(Image.ROTATE_270)
 
     img.save(file_path)
-    file_states[file_path].rotated = True
 
 
 while True:
@@ -149,41 +186,69 @@ while True:
     if event == sg.WIN_CLOSED:
         ImageStateLoader.save_image_states(file_states)
         break
-    elif event in 'Save and Next':
+    elif event == 'Confirm Rotation':
+        if len(unrotated) == 0:
+            continue
         if rotate_value % 360 != 0:
             rotate_image(filename, rotate_value % 360)
+        file_states[filename].rotated = True
+        file_states[filename].converted = False
+        file_states[filename].uploaded = False
+        if filename not in convert_queue:
+            convert_queue.append(filename)
+        if filename in upload_queue:
+            upload_queue.remove(filename)
+        previous_queue.append(filename)
+        unrotated.remove(filename)
         rotate_value = 0
-        i += 1
-        if i >= num_files:
-            i -= num_files
-        filename = unrotated[i]
-    elif event in 'Prev':
+        if len(unrotated) == 0:
+            filename = "default_image.jpg"
+        else:
+            filename = unrotated[0]
+    elif event == 'Prev':
+        if len(previous_queue) == 0:
+            continue
         rotate_value = 0
-        i -= 1
-        if i < 0:
-            i = num_files + i
-        filename = unrotated[i]
-    elif event == 'listbox':  # something from the listbox
-        rotate_value = 0
-        f = values["listbox"][0]  # selected filename
-        filename = f  # read this file
-        i = unrotated.index(f)  # update running index
+        unrotated.insert(0, previous_queue.pop())
+        filename = unrotated[0]
+        file_states[filename].rotated = False
+        file_states[filename].converted = False
+        file_states[filename].uploaded = False
+        if filename in convert_queue:
+            convert_queue.remove(filename)
+        if filename in upload_queue:
+            upload_queue.remove(filename)
     elif event == 'Rotate Right':
+        if len(unrotated) == 0:
+            continue
         rotate_value -= 90
     elif event == 'Rotate Left':
+        if len(unrotated) == 0:
+            continue
         rotate_value += 90
-    elif event == 'Show Metadata':
+    elif event == 'Show File State':
+        if len(unrotated) == 0:
+            continue
         print(file_states[filename])
-    elif event == 'Clear Metadata':
-        pass
+    elif event == "Convert Rotated to Jpg":
+        window.start_thread(lambda: convert_all_rotated(), ('-THREAD', '-THREAD ENDED-'))
     else:
-        filename = unrotated[i]
+        if len(unrotated) == 0:
+            filename = "default_image.jpg"
+        else:
+            filename = unrotated[0]
 
     # update window with new image
     image_elem.update(data=get_img_data(filename, rotate=(rotate_value % 360), first=True))
     # update window with filename
     filename_display_elem.update(filename)
     # update page display
-    file_num_display_elem.update('File {} of {}'.format(i + 1, num_files))
+    if len(unrotated) == 0:
+        num_to_rotate_display.update('No Unrotated Files')
+    else:
+        num_to_rotate_display.update('File {} of {}'.format(i + 1, len(unrotated)))
+
+    num_to_convert_display.update('Images to Convert: {}'.format(len(convert_queue)))
+    num_to_upload_display.update('Images to Upload: {}'.format(len(upload_queue)))
 
 window.close()
