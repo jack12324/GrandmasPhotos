@@ -7,7 +7,7 @@ from PySimpleGUI import Window
 from GoogleDriveHandler import GoogleDriveHandler
 from ImageStateHandler import ImageStateHandler
 
-START_FOLDER = "E:\\Files\\Python Scripts\\GrandmasPhotos\\Photos\\Denny"
+START_FOLDER = "D:\\Files\\Python Scripts\\GrandmasPhotos\\Photos\\Denny"
 
 
 def main():
@@ -28,6 +28,7 @@ def main():
     image_handler = ImageStateHandler(folder, upload_handler)
 
 
+
     # If there is nothing for the program to do, exit
     if (
             image_handler.get_num_to_rotate() +
@@ -39,6 +40,9 @@ def main():
 
     filename = image_handler.get_display_image()
 
+    # upload_handler.upload_image(filename)
+    #
+    # raise SystemExit()
     # make these 2 elements outside the layout as we want to "update" them later
     # initialize to the first file in the list
     image_elem = sg.Image(data=get_img_data(filename, first=True))
@@ -86,6 +90,7 @@ def main():
         elif event == 'Confirm Rotation':
             if rotate_value % 360 != 0:
                 rotate_image(filename, rotate_value % 360, image_handler)
+            image_handler.image_rotated(filename)
             rotate_value = 0
             filename = image_handler.get_display_image()
             set_display_dependent_button_enables(window, image_handler.get_num_to_rotate() != 0)
@@ -110,7 +115,7 @@ def main():
             set_upload_dependent_button_enables(window, image_handler.get_num_to_upload() != 0)
         elif event == "Convert Rotated to Jpg":
             set_convert_dependent_button_enables(window, False)
-            window.start_thread(lambda: image_handler.convert_all_rotated(), ('-THREAD', '-THREAD ENDED-'))
+            window.start_thread(lambda: image_handler.convert_all_rotated(), ('-THREAD-', '-THREAD ENDED-'))
         elif event[0] == '-THREAD-':
             if event[1] == '-THREAD ENDED-':
                 set_convert_dependent_button_enables(window, image_handler.get_num_to_convert() != 0)
@@ -159,7 +164,6 @@ def rotate_image(file_path: str, rotate: int, image_handler: ImageStateHandler) 
     else:
         img = img.transpose(Image.ROTATE_270)
     img.save(file_path)
-    image_handler.image_rotated(file_path)
 
 
 # ------------------------------------------------------------------------------
