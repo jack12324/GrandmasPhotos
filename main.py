@@ -40,9 +40,6 @@ def main():
 
     filename = image_handler.get_display_image()
 
-    # upload_handler.upload_image(filename)
-    #
-    # raise SystemExit()
     # make these 2 elements outside the layout as we want to "update" them later
     # initialize to the first file in the list
     image_elem = sg.Image(data=get_img_data(filename, first=True))

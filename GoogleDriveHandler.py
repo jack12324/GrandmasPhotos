@@ -15,8 +15,8 @@ class GoogleDriveHandler(UploadHandler):
     FOLDER = 'Grandmas Photos'
 
     #Uploads a single image to drive. the upload location will be the app folder path FOLDER plus
-    # any path of the original file following the Tif directory. ie. file C:test/foo/Tif/bar/photo.tif
-    # will be uploaded to FOLDER/bar/photo.tif on google drive.
+    # any path of the original file following the Tif directory. ie. file C:test/foo/Jpg/bar/photo.jpg
+    # will be uploaded to FOLDER/bar/photo.jpg on google drive.
     # this function will create any folders it needs along the path
     def upload_image(self, file: str) -> None:
         """Shows basic usage of the Drive v3 API.
@@ -25,7 +25,7 @@ class GoogleDriveHandler(UploadHandler):
         creds = self.__authenticate()
         (folder_path, file_name) = os.path.split(file)
         if "Tif\\" in folder_path:
-            file_path = folder_path.split("Tif/")[1]
+            file_path = folder_path.split("Jpg/")[1]
         else:
             file_path = ""
         full_path = os.path.join(self.FOLDER, file_path)

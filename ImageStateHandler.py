@@ -126,5 +126,9 @@ class ImageStateHandler:
         return len(self.previous_queue)
 
     def upload_all_converted(self):
-        self.upload_handler.upload_image(self.upload_queue[0])
-        self.__upload_complete(self.upload_queue[0])
+        while len(self.upload_queue) > 0:
+            image = self.upload_queue[0]
+            image = image.replace("Tif", "Jpg")
+            image = image.replace("tif", "jpg")
+            self.upload_handler.upload_image(image)
+            self.__upload_complete(self.upload_queue[0])
