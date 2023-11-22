@@ -1,13 +1,17 @@
+import os.path
+
 import PySimpleGUI as sg
 from PIL import Image, ImageTk
 import io
+import cv2
+
 
 from PySimpleGUI import Window
 
 from GoogleDriveHandler import GoogleDriveHandler
 from ImageStateHandler import ImageStateHandler
 
-START_FOLDER = "D:\\Files\\Python Scripts\\GrandmasPhotos\\Photos\\Denny"
+START_FOLDER = ''#"D:\\Files\\Python Scripts\\GrandmasPhotos\\Photos\\Denny"
 
 
 def main():
@@ -45,9 +49,9 @@ def main():
     image_elem = sg.Image(data=get_img_data(filename, first=True))
     filename_display_elem = sg.Text(filename, auto_size_text=True)
 
-    num_to_rotate_display = sg.Text('Images to Rotate {}'.format(image_handler.get_num_to_rotate()), size=(15, 1))
-    num_to_convert_display = sg.Text('Images to Convert: {}'.format(image_handler.get_num_to_convert()), size=(15, 1))
-    num_to_upload_display = sg.Text('Images to Upload: {}'.format(image_handler.get_num_to_upload()), size=(15, 1))
+    num_to_rotate_display = sg.Text('Images to Rotate {}'.format(image_handler.get_num_to_rotate()), size=(19, 1))
+    num_to_convert_display = sg.Text('Images to Convert: {}'.format(image_handler.get_num_to_convert()), size=(19, 1))
+    num_to_upload_display = sg.Text('Images to Upload: {}'.format(image_handler.get_num_to_upload()), size=(19, 1))
 
     # define layout, show and read the form
     col = [[filename_display_elem],
@@ -86,7 +90,7 @@ def main():
         # rotated. Finally, we update what image to display, and update whether any buttons should be disabled
         elif event == 'Confirm Rotation':
             if rotate_value % 360 != 0:
-                rotate_image(filename, rotate_value % 360, image_handler)
+                rotate_image(filename, rotate_value % 360, image_handler, window)
             image_handler.image_rotated(filename)
             rotate_value = 0
             filename = image_handler.get_display_image()
@@ -152,15 +156,25 @@ def set_upload_dependent_button_enables(window: Window, enabled: bool) -> None:
     window['Upload Converted'].update(disabled=(not enabled))
 
 
-def rotate_image(file_path: str, rotate: int, image_handler: ImageStateHandler) -> None:
-    img = Image.open(file_path)
+def rotate_image(file_path: str, rotate: int, image_handler: ImageStateHandler, window) -> None:
+
+    original_size = os.path.getsize(file_path)
+    src = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+
     if rotate == 90:
-        img = img.transpose(Image.ROTATE_90)
+        img = cv2.rotate(src, cv2.ROTATE_90_COUNTERCLOCKWISE)
     elif rotate == 180:
-        img = img.transpose(Image.ROTATE_180)
+        img = cv2.rotate(src, cv2.ROTATE_180)
     else:
-        img = img.transpose(Image.ROTATE_270)
-    img.save(file_path)
+        img = cv2.rotate(src, cv2.ROTATE_90_CLOCKWISE)
+
+    cv2.imwrite(file_path, img, params=(cv2.IMWRITE_TIFF_COMPRESSION, 1))
+    after_size = os.path.getsize(file_path)
+    size_diff_kb = (after_size-original_size)/1024
+    print("Size difference after writing:", size_diff_kb, "KB")
+    if size_diff_kb > 1024:
+        print("Writing file", file_path, 'resulted in a loss of more than 1MB, halting program for safety')
+        window.write_event_value(sg.WIN_CLOSED, None)
 
 
 # ------------------------------------------------------------------------------
