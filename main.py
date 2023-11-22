@@ -170,9 +170,11 @@ def rotate_image(file_path: str, rotate: int, image_handler: ImageStateHandler, 
 
     cv2.imwrite(file_path, img, params=(cv2.IMWRITE_TIFF_COMPRESSION, 1))
     after_size = os.path.getsize(file_path)
-    size_diff_kb = (after_size-original_size)/1024
-    print("Size difference after writing:", size_diff_kb, "KB")
-    if size_diff_kb > 1024:
+    size_diff = (original_size-after_size)
+    size_diff_kb = size_diff/1024
+    size_diff_percentage = size_diff/original_size
+    print("Size difference after writing:", size_diff_kb, "KB\nPercentage of Original", 100*(1-size_diff_percentage), '%')
+    if (size_diff_percentage)>.1:
         print("Writing file", file_path, 'resulted in a loss of more than 1MB, halting program for safety')
         window.write_event_value(sg.WIN_CLOSED, None)
 
